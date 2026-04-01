@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CMAS — 콘텐츠 자동화 시스템</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#F8F7FF;}
+  ::-webkit-scrollbar{width:4px;height:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#E5E7EB;border-radius:4px;}
+  textarea,input,select{outline:none;font-family:inherit;}
+  button{cursor:pointer;border:none;font-family:inherit;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+  @keyframes fadein{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  .fadein{animation:fadein 0.25s ease;}
+  .fadeUp{animation:fadeUp 0.5s ease;}
+  .shake{animation:shake 0.4s ease;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ══════════════════════════════════════════════════════
+//  ⚠️ 여기에 Gemini API 키를 입력하세요
+// ══════════════════════════════════════════════════════
+const GEMINI_API_KEY = "AIzaSyB-vrFpGWoMwfhI7KucOigSJR2W5FcIu9Q";
+// ══════════════════════════════════════════════════════
+
+const PASSWORD = "csis";
+
+const GOAL_CHANNELS = {
+  인지도:  { group:"획득", channels:["Instagram","Facebook"], color:"#7C3AED" },
+  참여도:  { group:"설득", channels:["Blog","Brunch","Magazine"], color:"#7C3AED" },
+  전환:    { group:"전환", channels:["LinkedIn","Newsletter"], color:"#059669" },
+  브랜딩:  { group:"PR",  channels:["Article","Kakao"], color:"#2563EB" },
+};
+const CH_ICON = {Instagram:"IG",Facebook:"FB",Blog:"BL",Brunch:"BR",Magazine:"MG",LinkedIn:"LI",Newsletter:"NL",Article:"AR",Kakao:"KK"};
+const TONES   = ["전문적","대화형","권위있는","영감을 주는","편집적","친근한"];
+const TYPES   = ["인사이트","사례연구","광고","트렌드"];
+
+const PROMPTS = {
+  Instagram:`당신은 Instagram 콘텐츠 전략가입니다.\n구조: 훅(1-2줄) → 비주얼 설명 → 핵심 인사이트 → CTA + 해시태그\n톤: {{tone}} | 길이: 150-220자 + 해시태그 8-10개\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n완성된 Instagram 포스트를 작성하세요.`,
+  Facebook:`당신은 Facebook 콘텐츠 전략가입니다.\n구조: 훅 → 스토리 → 가치 인사이트 → CTA + 질문\n톤: {{tone}} | 길이: 80-150단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n완성된 Facebook 포스트를 작성하세요.`,
+  Blog:`당신은 SEO 작가 겸 콘텐츠 전략가입니다.\n구조: SEO 최적화 제목 → 훅 단락 → H2 섹션 3-5개 → 데이터 & 사례 → CTA\n톤: {{tone}} | 길이: 800-1200단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\nH2 제목과 강력한 CTA가 포함된 블로그 포스트를 작성하세요.`,
+  Brunch:`당신은 브런치 스토리텔링 전문가입니다.\n구조: 감성적 제목 → 감성 훅 → 개인 스토리 → 인사이트 → 성찰\n톤: {{tone}} | 길이: 600-900단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n문학적인 브런치 스타일 글을 작성하세요.`,
+  Magazine:`당신은 매거진 편집 작가입니다.\n구조: 헤드라인 → 서브헤드 → 리드 단락 → 피처 섹션 → 전문가 관점 → 마무리\n톤: {{tone}} | 길이: 500-800단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n매거진 피처 기사를 작성하세요.`,
+  LinkedIn:`당신은 LinkedIn 사고 리더십 전략가입니다.\n구조: 독립적인 첫 줄 → 개인 인사이트 → 데이터/증거 → 참여 CTA\n톤: {{tone}} | 길이: 200-300단어, 짧은 단락\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\nLinkedIn 포스트를 작성하세요. 단락 사이에 빈 줄을 추가하세요.`,
+  Newsletter:`당신은 뉴스레터 전문가입니다.\n구조: 제목(50자 이내) + 미리보기 → 인사 → 인사이트 → 요점 → CTA\n톤: {{tone}} | 길이: 300-500단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n제목:과 미리보기:를 상단에 표시하고 뉴스레터 본문을 작성하세요.`,
+  Article:`당신은 PR 기사 작가입니다.\n구조: 뉴스 헤드라인 → 리드(누가,무엇을,언제,어디서) → 핵심 사실 → 맥락 → 인용 → 마무리\n톤: {{tone}} | 길이: 400-600단어\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n보도자료를 작성하세요.`,
+  Kakao:`당신은 카카오 채널 전문가입니다.\n구조: 이모지 + 훅 → 핵심 메시지 → 혜택 → CTA\n톤: {{tone}} | 길이: 50-100단어 + 이모지\n유형: {{contentType}} | 목표: {{goal}}\n\n초안:\n{{draft}}\n\n카카오 채널 메시지를 작성하세요.`,
+};
+
+const GLOBAL_RULES = [
+  {id:"g1",text:'금지 단어: "레버리지","시너지","패러다임 전환","파괴적"',enabled:true},
+  {id:"g2",text:"수동태 금지 — 모든 문장은 능동태로 작성",enabled:true},
+  {id:"g3",text:"검증되지 않은 통계 금지",enabled:true},
+  {id:"g4",text:'최상급 표현 금지: "최고","최대","세계 최고"',enabled:true},
+  {id:"g5",text:"평균 문장 길이 20단어 이내",enabled:false},
+];
+const CH_RULES = {
+  Instagram:[{id:"ig1",text:"해시태그 최소 5개",enabled:true},{id:"ig2",text:"명확한 CTA 1개",enabled:true}],
+  Facebook:[{id:"fb1",text:"질문으로 마무리",enabled:true}],
+  Blog:[{id:"bl1",text:"H2 소제목 최소 3개",enabled:true},{id:"bl2",text:"메타 설명 포함",enabled:true}],
+  Brunch:[{id:"brc1",text:"1인칭 서술 필수",enabled:true}],
+  Magazine:[{id:"mg1",text:"전문가 관점 1개 이상",enabled:true}],
+  LinkedIn:[{id:"li1",text:"첫 줄 독립적으로 이해 가능",enabled:true},{id:"li2",text:"단락당 최대 3문장",enabled:true}],
+  Newsletter:[{id:"nl1",text:"제목 50자 이내",enabled:true}],
+  Article:[{id:"ar1",text:"리드 단락에 5W 답변",enabled:true}],
+  Kakao:[{id:"kk1",text:"이모지로 시작",enabled:true},{id:"kk2",text:"100단어 이내",enabled:true}],
+};
+const RAG_INIT = [
+  {id:"r1",title:"고성과 Instagram 포스트 예시",tags:["instagram","고성과"],isHighPerf:true,preview:"훅 중심, 가치 전달 — 30일 만에 참여율 3배",content:"고성과 예시: 훅으로 시작, 판매보다 교육에 집중. 30일 만에 참여율 3배."},
+  {id:"r2",title:"브랜드 톤 & 보이스 가이드라인",tags:["브랜드","톤"],isHighPerf:false,preview:"자신감 있지만 오만하지 않게.",content:"브랜드 보이스: 자신감, 명확함, 인간적. 기업 용어·수동형 금지."},
+];
+
+const C = {
+  bg:"#F8F7FF",white:"#FFFFFF",surface:"#F3F4F6",border:"#E5E7EB",borderMd:"#D1D5DB",
+  text:"#111827",textMd:"#374151",textSub:"#6B7280",textHint:"#9CA3AF",
+  primary:"#7C3AED",primaryBg:"#EDE9FE",primaryMd:"#6D28D9",
+  green:"#059669",greenBg:"#D1FAE5",red:"#DC2626",redBg:"#FEE2E2",
+  amber:"#D97706",amberBg:"#FEF3C7",blue:"#2563EB",blueBg:"#DBEAFE",
+};
+
+function buildPrompt(ch,{draft,contentType,goal,tone,globalRules,chRules,ragRefs,selTags,prompts}){
+  const tmpl=prompts[ch]||PROMPTS[ch]||"{{draft}}를 변환";
+  const gR=globalRules.filter(r=>r.enabled).map(r=>`• ${r.text}`).join("\n");
+  const cR=(chRules[ch]||[]).filter(r=>r.enabled).map(r=>`• ${r.text}`).join("\n");
+  const rules=[gR,cR].filter(Boolean).join("\n");
+  const active=ragRefs.filter(r=>selTags.length===0||r.tags.some(t=>selTags.includes(t)));
+  const rag=active.length>0?`\n참고 자료:\n${active.map(r=>`[${r.title}] ${r.content}`).join("\n")}`:"";
+  const rb=rules?`\n준수 규칙:\n${rules}`:"";
+  return tmpl.replace("{{draft}}",draft).replace("{{contentType}}",contentType).replace("{{goal}}",goal).replace("{{tone}}",tone)+rag+rb;
+}
+
+async function callGemini(prompt){
+  const apiKey = GEMINI_API_KEY;
+  if(!apiKey || apiKey==="여기에_API_키_입력") throw new Error("API 키가 설정되지 않았습니다. index.html 상단의 GEMINI_API_KEY를 입력하세요.");
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  let res;
+  try{
+    res=await fetch(url,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:1200}}),
+      signal:controller.signal
+    });
+  }catch(e){
+    clearTimeout(timer);
+    if(e.name==="AbortError") throw new Error("시간 초과(30초). 다시 시도해주세요.");
+    throw e;
+  }
+  clearTimeout(timer);
+  if(!res.ok){const t=await res.text().catch(()=>"");throw new Error(`Gemini API 오류 ${res.status}: ${t.slice(0,100)}`);}
+  const data=await res.json();
+  if(data.error) throw new Error(data.error.message||"Gemini API 오류");
+  return data.candidates?.[0]?.content?.parts?.[0]?.text||"결과 없음";
+}
+
+// ─── 비밀번호 화면
+function PasswordGate({onUnlock}){
+  const [pw,setPw]=React.useState("");
+  const [shake,setShake]=React.useState(false);
+  const [err,setErr]=React.useState("");
+  const attempt=()=>{
+    if(pw===PASSWORD){onUnlock();}
+    else{setShake(true);setErr("비밀번호가 올바르지 않습니다.");setTimeout(()=>setShake(false),500);setPw("");}
+  };
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div className="fadeUp" style={{background:C.white,borderRadius:16,border:`1px solid ${C.border}`,padding:"48px 40px",width:400,maxWidth:"90vw",boxShadow:"0 4px 24px rgba(124,58,237,0.08)"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:52,height:52,background:C.primaryBg,borderRadius:14,marginBottom:16}}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+              <path d="M13 2L4.5 13.5H12L11 22L19.5 10.5H12L13 2Z" stroke={C.primary} strokeWidth="1.8" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div style={{fontWeight:700,fontSize:20,color:C.text,letterSpacing:"-0.3px"}}>CMAS</div>
+          <div style={{fontSize:13,color:C.textSub,marginTop:4}}>콘텐츠 다목적 자동화 시스템</div>
+          <div style={{marginTop:8,display:"inline-flex",alignItems:"center",gap:5,background:C.primaryBg,padding:"4px 10px",borderRadius:20}}>
+            <span style={{fontSize:11,color:C.primary,fontWeight:600}}>Powered by Gemini 2.0 Flash</span>
+          </div>
+        </div>
+        <div style={{borderTop:`1px solid ${C.border}`,marginBottom:28}}/>
+        <div style={{marginBottom:6,fontSize:13,fontWeight:500,color:C.textMd}}>팀 비밀번호</div>
+        <div className={shake?"shake":""}>
+          <input type="password" value={pw} onChange={e=>{setPw(e.target.value);setErr("");}}
+            onKeyDown={e=>e.key==="Enter"&&attempt()}
+            placeholder="비밀번호를 입력하세요"
+            style={{width:"100%",padding:"11px 14px",border:`1.5px solid ${err?C.red:C.border}`,borderRadius:8,fontSize:14,color:C.text,background:C.white,transition:"all 0.2s",marginBottom:err?6:16,boxSizing:"border-box"}}
+            autoFocus/>
+          {err&&<div style={{fontSize:12,color:C.red,marginBottom:12}}>⚠ {err}</div>}
+        </div>
+        <button onClick={attempt}
+          style={{width:"100%",padding:"12px",background:C.primary,color:"#fff",borderRadius:8,fontSize:14,fontWeight:600,transition:"all 0.15s",boxShadow:"0 2px 8px rgba(124,58,237,0.25)"}}>
+          입장하기 →
+        </button>
+        <div style={{textAlign:"center",marginTop:20,fontSize:12,color:C.textHint}}>비밀번호가 없으시면 팀 관리자에게 문의하세요</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 토글
+function Toggle({on,onClick,accent=C.primary}){
+  return(
+    <button onClick={onClick} style={{width:30,height:16,borderRadius:8,background:on?accent:C.border,border:"none",position:"relative",cursor:"pointer",flexShrink:0,transition:"background 0.2s"}}>
+      <div style={{position:"absolute",top:2,left:on?14:2,width:12,height:12,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.15)"}}/>
+    </button>
+  );
+}
+function Badge({children,color=C.primary,bg=C.primaryBg}){
+  return <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:20,background:bg,color,display:"inline-flex",alignItems:"center"}}>{children}</span>;
+}
+function Lbl({c}){return <div style={{fontSize:12,fontWeight:500,color:C.textMd,marginBottom:6}}>{c}</div>;}
+
+// ─── 메인 앱
+function CMASApp(){
+  const [draft,setDraft]=React.useState("24/365 안정적 운영: 상담사 이탈이나 호폭주에도 흔들림 없는 일관된 서비스 품질을 보장합니다.");
+  const [contentType,setContentType]=React.useState("인사이트");
+  const [goal,setGoal]=React.useState("참여도");
+  const [tone,setTone]=React.useState("전문적");
+  const [outputs,setOutputs]=React.useState({});
+  const [generating,setGenerating]=React.useState({});
+  const [activeTab,setActiveTab]=React.useState("Blog");
+  const [rightPanel,setRightPanel]=React.useState("rules");
+  const [globalRules,setGlobalRules]=React.useState(GLOBAL_RULES);
+  const [chRules,setChRules]=React.useState(CH_RULES);
+  const [ragRefs,setRagRefs]=React.useState(RAG_INIT);
+  const [selTags,setSelTags]=React.useState([]);
+  const [newGR,setNewGR]=React.useState("");
+  const [newCR,setNewCR]=React.useState("");
+  const [editRId,setEditRId]=React.useState(null);
+  const [editRTxt,setEditRTxt]=React.useState("");
+  const [showAddRag,setShowAddRag]=React.useState(false);
+  const [newRag,setNewRag]=React.useState({title:"",content:"",tags:""});
+  const [log,setLog]=React.useState([{id:0,time:"--:--:--",msg:"시스템 초기화 완료. 초안을 입력하고 생성하세요.",type:"info"}]);
+  const [compareMode,setCompareMode]=React.useState(false);
+  const [compareChs,setCompareChs]=React.useState([]);
+  const [starModal,setStarModal]=React.useState(null);
+  const [starNote,setStarNote]=React.useState("");
+  const [starTags,setStarTags]=React.useState("");
+  const [exportModal,setExportModal]=React.useState(null);
+  const [copied,setCopied]=React.useState(false);
+  const [prompts,setPrompts]=React.useState(PROMPTS);
+  const [editCh,setEditCh]=React.useState(null);
+  const [editTmpl,setEditTmpl]=React.useState("");
+  const [promptVers,setPromptVers]=React.useState({});
+  const [ruleVers,setRuleVers]=React.useState([]);
+  const [showRV,setShowRV]=React.useState(false);
+  const [showPV,setShowPV]=React.useState(false);
+  const [ruleTab,setRuleTab]=React.useState("전역");
+
+  const goalData=GOAL_CHANNELS[goal]||GOAL_CHANNELS["참여도"];
+  const channels=goalData.channels;
+  const grpColor=goalData.color;
+  const curOut=outputs[activeTab];
+  const isGen=generating[activeTab];
+  const anyGen=channels.some(c=>generating[c]);
+  const allTags=[...new Set(ragRefs.flatMap(r=>r.tags))].sort();
+  const activeRag=ragRefs.filter(r=>selTags.length===0||r.tags.some(t=>selTags.includes(t)));
+
+  const addLog=(msg,type="info")=>{
+    const n=new Date();
+    const t=`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}:${String(n.getSeconds()).padStart(2,"0")}`;
+    setLog(p=>[{id:Date.now(),time:t,msg,type},...p].slice(0,200));
+  };
+
+  const generateCh=React.useCallback(async(ch)=>{
+    if(!draft.trim()){addLog("초안을 입력해주세요","error");return;}
+    setGenerating(p=>({...p,[ch]:true}));
+    addLog(`${ch} 생성 중... (Gemini 2.0 Flash)`);
+    try{
+      const prompt=buildPrompt(ch,{draft,contentType,goal,tone,globalRules,chRules,ragRefs,selTags,prompts});
+      const content=await callGemini(prompt);
+      const lc=content.toLowerCase();
+      const viol=[];
+      ["레버리지","시너지","파괴적","패러다임"].forEach(w=>{if(lc.includes(w))viol.push({text:`금지 단어: "${w}"`,sev:"경고"});});
+      setOutputs(p=>({...p,[ch]:{content,violations:viol,ts:new Date().toLocaleTimeString("ko-KR"),starred:false}}));
+      addLog(`${ch} 완료${viol.length?` — ${viol.length}개 경고`:""}`,viol.length?"warn":"success");
+    }catch(e){
+      addLog(`${ch} 오류: ${e.message}`,"error");
+      setOutputs(p=>({...p,[ch]:{content:`생성 실패\n\n${e.message}`,violations:[],ts:new Date().toLocaleTimeString("ko-KR"),starred:false}}));
+    }finally{setGenerating(p=>({...p,[ch]:false}));}
+  },[draft,contentType,goal,tone,globalRules,chRules,ragRefs,selTags,prompts]);
+
+  const generateAll=()=>{
+    if(!draft.trim()){addLog("초안을 입력해주세요","error");return;}
+    addLog(`전체 생성: ${channels.join(", ")}`);
+    channels.forEach(ch=>generateCh(ch));
+  };
+
+  const exportContent=(ch,fmt)=>{
+    const out=outputs[ch];if(!out)return;
+    if(fmt==="copy"){navigator.clipboard.writeText(out.content);setCopied(true);setTimeout(()=>setCopied(false),2000);addLog(`${ch} 복사`);return;}
+    const ext=fmt==="markdown"?"md":"txt";
+    const pfx=fmt==="markdown"?`# ${ch} — ${contentType}\n> 목표: ${goal} | 톤: ${tone}\n\n`:`${ch}\n목표: ${goal} | 톤: ${tone}\n\n`;
+    const blob=new Blob([pfx+out.content],{type:"text/plain;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`cmas_${ch}_${Date.now()}.${ext}`;a.click();
+    addLog(`${ch} ${ext} 다운로드`,"success");
+  };
+
+  return(
+    <div style={{display:"flex",height:"100vh",background:C.bg,color:C.text,overflow:"hidden",fontSize:13}}>
+
+      {/* 왼쪽 사이드바 */}
+      <div style={{width:258,minWidth:258,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",background:C.white}}>
+        <div style={{padding:"16px 18px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,background:C.primaryBg,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H12L11 22L19.5 10.5H12L13 2Z" stroke={C.primary} strokeWidth="1.8" strokeLinejoin="round"/></svg>
+          </div>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:C.text,letterSpacing:"-0.3px"}}>CMAS</div>
+            <div style={{fontSize:10,color:C.textSub}}>Powered by Gemini 2.0 Flash ✦</div>
+          </div>
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"14px 14px"}}>
+          <Lbl c="초안 콘텐츠"/>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder="콘텐츠 초안을 입력하세요..."
+            style={{width:"100%",height:100,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",color:C.text,lineHeight:1.7,resize:"none",marginBottom:14}}
+            onFocus={e=>e.target.style.borderColor=C.primary} onBlur={e=>e.target.style.borderColor=C.border}/>
+
+          <Lbl c="콘텐츠 유형"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:14}}>
+            {TYPES.map(t=>(
+              <button key={t} onClick={()=>setContentType(t)}
+                style={{padding:"7px 6px",borderRadius:7,fontSize:12,fontWeight:500,background:contentType===t?C.primaryBg:C.surface,color:contentType===t?C.primary:C.textSub,border:`1.5px solid ${contentType===t?C.primary:C.border}`,transition:"all 0.15s"}}>
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <Lbl c="캠페인 목표"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:14}}>
+            {Object.keys(GOAL_CHANNELS).map(g=>(
+              <button key={g} onClick={()=>setGoal(g)}
+                style={{padding:"7px 6px",borderRadius:7,fontSize:12,fontWeight:500,background:goal===g?C.primaryBg:C.surface,color:goal===g?C.primary:C.textSub,border:`1.5px solid ${goal===g?C.primary:C.border}`,transition:"all 0.15s"}}>
+                {g}
+              </button>
+            ))}
+          </div>
+
+          <Lbl c="콘텐츠 톤"/>
+          <select value={tone} onChange={e=>setTone(e.target.value)}
+            style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,marginBottom:14,appearance:"none",cursor:"pointer"}}>
+            {TONES.map(t=><option key={t}>{t}</option>)}
+          </select>
+
+          <Lbl c="채널 전략"/>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:grpColor}}/>
+              <span style={{fontSize:11,fontWeight:600,color:grpColor}}>{goalData.group}</span>
+              <span style={{fontSize:11,color:C.textHint,marginLeft:"auto"}}>{goal} →</span>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+              {channels.map(ch=>(
+                <span key={ch} style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:C.primaryBg,color:C.primary,fontWeight:500}}>{ch}</span>
+              ))}
+            </div>
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+              {Object.entries(GOAL_CHANNELS).map(([g,{group:gr,channels:chs,color:col}])=>(
+                <div key={g} onClick={()=>setGoal(g)} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,opacity:g===goal?1:0.35,cursor:"pointer",padding:"2px 4px",borderRadius:5}}>
+                  <div style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/>
+                  <span style={{fontSize:11,color:C.textSub,minWidth:30}}>{gr}</span>
+                  <span style={{fontSize:11,color:C.textHint}}>{chs.join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{padding:"12px 14px",borderTop:`1px solid ${C.border}`,background:C.white}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:9}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:activeRag.length>0?C.green:C.border}}/>
+            <span style={{fontSize:11,color:C.textSub}}>RAG {activeRag.length}개 · 규칙 {globalRules.filter(r=>r.enabled).length}개</span>
+            <button onClick={()=>{setCompareMode(p=>!p);if(!compareMode)setCompareChs([]);}}
+              style={{marginLeft:"auto",fontSize:11,padding:"3px 8px",background:compareMode?C.primaryBg:C.surface,border:`1px solid ${compareMode?C.primary:C.border}`,borderRadius:6,color:compareMode?C.primary:C.textSub}}>
+              {compareMode?"비교 ON":"비교"}
+            </button>
+          </div>
+          <button onClick={generateAll} disabled={!draft.trim()||anyGen}
+            style={{width:"100%",padding:"11px",background:anyGen?C.surface:C.primary,color:anyGen?C.textSub:"#fff",borderRadius:9,fontSize:13,fontWeight:600,marginBottom:7,cursor:anyGen?"not-allowed":"pointer",boxShadow:anyGen?"none":"0 2px 8px rgba(124,58,237,0.25)",transition:"all 0.15s"}}>
+            {anyGen?"⟳  생성 중...":"⚡  전체 채널 생성"}
+          </button>
+          <div style={{display:"flex",gap:5}}>
+            {channels.map(ch=>(
+              <button key={ch}
+                onClick={()=>compareMode?(setCompareChs(p=>p.includes(ch)?p.filter(c=>c!==ch):[...p,ch].slice(-3))):generateCh(ch)}
+                style={{flex:1,padding:"6px 4px",background:compareMode&&compareChs.includes(ch)?C.primaryBg:C.surface,color:compareMode&&compareChs.includes(ch)?C.primary:generating[ch]?C.textHint:C.textSub,borderRadius:7,fontSize:10,border:`1.5px solid ${compareMode&&compareChs.includes(ch)?C.primary:C.border}`,fontWeight:500,transition:"all 0.15s"}}>
+                {generating[ch]?<span style={{width:5,height:5,borderRadius:"50%",background:C.primary,display:"inline-block",animation:"pulse 1s infinite"}}/>:CH_ICON[ch]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 가운데 출력 */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+        <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,background:C.white,padding:"0 22px",overflowX:"auto",flexShrink:0}}>
+          {channels.map(ch=>{
+            const out=outputs[ch];const isG=generating[ch];const active=activeTab===ch&&!compareMode;
+            return(
+              <button key={ch} onClick={()=>{setActiveTab(ch);setCompareMode(false);}}
+                style={{padding:"12px 14px",fontSize:13,fontWeight:active?600:400,color:active?C.primary:C.textSub,borderBottom:`2px solid ${active?C.primary:"transparent"}`,background:"transparent",whiteSpace:"nowrap",transition:"all 0.15s",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,fontWeight:600,background:active?C.primaryBg:C.surface,padding:"2px 5px",borderRadius:5,color:active?C.primary:C.textHint}}>{CH_ICON[ch]}</span>
+                {ch}
+                {isG&&<span style={{width:6,height:6,borderRadius:"50%",background:C.primary,animation:"pulse 1s infinite"}}/>}
+                {out?.starred&&!isG&&<span style={{fontSize:10,color:"#D97706"}}>★</span>}
+                {out?.violations?.length>0&&!isG&&<span style={{width:6,height:6,borderRadius:"50%",background:C.red}}/>}
+                {out?.content&&!out.content.startsWith("생성 실패")&&!out.violations?.length&&!isG&&!out.starred&&<span style={{width:6,height:6,borderRadius:"50%",background:C.green}}/>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"22px 26px"}}>
+          {compareMode?(
+            <div>
+              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:20}}>
+                <div style={{fontWeight:700,fontSize:17,color:C.text}}>채널 비교</div>
+                <Badge>비교 모드</Badge>
+              </div>
+              {compareChs.length===0?(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:200,gap:12,background:C.white,borderRadius:12,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:32}}>⊞</div>
+                  <div style={{fontSize:13,color:C.textSub}}>하단 채널 버튼을 클릭해 비교할 채널을 선택하세요</div>
+                </div>
+              ):(
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${compareChs.length},1fr)`,gap:16}}>
+                  {compareChs.map(ch=>{
+                    const out=outputs[ch];const isG=generating[ch];
+                    return(
+                      <div key={ch} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+                        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <span style={{fontWeight:600,fontSize:13,color:C.text}}>{ch}</span>
+                          <div style={{display:"flex",gap:5}}>
+                            <button onClick={()=>generateCh(ch)} disabled={isG} style={{fontSize:11,padding:"4px 9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>↺</button>
+                            {out&&<button onClick={()=>exportContent(ch,"copy")} style={{fontSize:11,padding:"4px 9px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>복사</button>}
+                          </div>
+                        </div>
+                        <div style={{padding:16,minHeight:160}}>
+                          {isG?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:120,gap:10}}>
+                            <div style={{width:26,height:26,border:`2px solid ${C.border}`,borderTopColor:C.primary,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                            <div style={{fontSize:12,color:C.textSub}}>생성 중...</div>
+                          </div>:out?<div style={{fontSize:13,color:C.textMd,lineHeight:1.85,whiteSpace:"pre-wrap"}}>{out.content}</div>
+                          :<div style={{fontSize:12,color:C.textHint,textAlign:"center",padding:"24px 0"}}>↺ 눌러 생성</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ):(
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:20,color:C.text,display:"flex",alignItems:"center",gap:10,letterSpacing:"-0.4px"}}>
+                    {activeTab}<Badge>{goalData.group}</Badge>
+                  </div>
+                  <div style={{fontSize:12,color:C.textSub,marginTop:4}}>
+                    {{"Instagram":"훅 → 비주얼 → 인사이트 → CTA + 해시태그","Blog":"SEO 제목 → H2 섹션 → CTA","LinkedIn":"독립적 훅 → 인사이트 → CTA","Newsletter":"제목+미리보기 → 인사이트 → CTA"}[activeTab]||"구조화된 채널 콘텐츠"}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:7,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  {curOut&&!curOut.content.startsWith("생성 실패")&&(
+                    <>
+                      <button onClick={()=>{setStarModal({channel:activeTab,content:curOut.content});setStarNote("");setStarTags("");}}
+                        style={{padding:"7px 12px",fontSize:12,background:curOut.starred?C.amberBg:C.white,border:`1px solid ${curOut.starred?C.amber:C.border}`,borderRadius:8,color:curOut.starred?C.amber:C.textSub,fontWeight:500}}>
+                        {curOut.starred?"★ 고성과":"☆ 고성과 태깅"}
+                      </button>
+                      <button onClick={()=>setExportModal(activeTab)} style={{padding:"7px 12px",fontSize:12,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,color:C.textSub,fontWeight:500}}>↓ 내보내기</button>
+                    </>
+                  )}
+                  <button onClick={()=>generateCh(activeTab)} disabled={isGen}
+                    style={{padding:"7px 14px",fontSize:12,background:isGen?C.surface:C.white,border:`1.5px solid ${isGen?C.border:grpColor}`,borderRadius:8,color:isGen?C.textHint:grpColor,fontWeight:600,cursor:isGen?"not-allowed":"pointer"}}>
+                    {isGen?"⟳ 생성 중...":"↺ 재생성"}
+                  </button>
+                  <button onClick={()=>{setRightPanel("prompts");setEditCh(activeTab);setEditTmpl(prompts[activeTab]||"");}}
+                    style={{padding:"7px 12px",fontSize:12,background:C.white,border:`1px solid ${C.border}`,borderRadius:8,color:C.textSub,fontWeight:500}}>
+                    프롬프트 편집
+                  </button>
+                </div>
+              </div>
+
+              {curOut?.violations?.length>0&&(
+                <div className="fadein" style={{marginBottom:14,background:C.redBg,border:`1px solid #FCA5A5`,borderRadius:8,padding:"12px 16px"}}>
+                  <div style={{fontSize:12,color:C.red,fontWeight:600,marginBottom:6}}>⚠ 규칙 위반 {curOut.violations.length}개</div>
+                  {curOut.violations.map((v,i)=><div key={i} style={{fontSize:12,color:C.red,padding:"2px 0"}}>› {v.text}</div>)}
+                </div>
+              )}
+
+              {isGen?(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:260,gap:16,background:C.white,borderRadius:12,border:`1px solid ${C.border}`}}>
+                  <div style={{width:36,height:36,border:`2.5px solid ${C.border}`,borderTopColor:C.primary,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:13,color:C.text,fontWeight:500}}>{activeTab} 콘텐츠 생성 중...</div>
+                    <div style={{fontSize:12,color:C.textSub,marginTop:4}}>Gemini 2.0 Flash 호출 중 (최대 30초)</div>
+                  </div>
+                </div>
+              ):curOut?(
+                <div className="fadein" style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:12,padding:24}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:12,color:C.textSub}}>생성됨 · {curOut.ts}</div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>exportContent(activeTab,"copy")} style={{fontSize:12,padding:"5px 12px",background:copied?C.greenBg:C.surface,border:`1px solid ${copied?"#6EE7B7":C.border}`,borderRadius:7,color:copied?C.green:C.textSub,transition:"all 0.2s",fontWeight:copied?600:400}}>
+                        {copied?"✓ 복사됨":"복사"}
+                      </button>
+                      <button onClick={()=>exportContent(activeTab,"markdown")} style={{fontSize:12,padding:"5px 12px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub}}>MD</button>
+                      <button onClick={()=>exportContent(activeTab,"txt")} style={{fontSize:12,padding:"5px 12px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub}}>TXT</button>
+                    </div>
+                  </div>
+                  <div style={{fontSize:14,color:C.textMd,lineHeight:1.9,whiteSpace:"pre-wrap"}}>{curOut.content}</div>
+                </div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:260,gap:12,background:C.white,borderRadius:12,border:`1.5px dashed ${C.border}`}}>
+                  <div style={{width:48,height:48,background:C.primaryBg,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H12L11 22L19.5 10.5H12L13 2Z" stroke={C.primary} strokeWidth="1.8" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div style={{textAlign:"center",lineHeight:1.8}}>
+                    <div style={{fontSize:14,color:C.text,fontWeight:500}}>{activeTab} 콘텐츠 없음</div>
+                    <div style={{fontSize:12,color:C.textSub}}>왼쪽 <span style={{color:C.primary,fontWeight:600}}>⚡ 전체 채널 생성</span>을 클릭하세요</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 오른쪽 패널 */}
+      <div style={{width:300,minWidth:300,borderLeft:`1px solid ${C.border}`,display:"flex",flexDirection:"column",background:C.white,overflow:"hidden"}}>
+        <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0,padding:"0 4px"}}>
+          {[["rules","규칙"],["rag","참고자료"],["prompts","프롬프트"],["log","로그"]].map(([id,label])=>(
+            <button key={id} onClick={()=>setRightPanel(id)}
+              style={{flex:1,padding:"12px 4px",fontSize:12,color:rightPanel===id?C.primary:C.textSub,borderBottom:`2px solid ${rightPanel===id?C.primary:"transparent"}`,background:"transparent",fontWeight:rightPanel===id?600:400}}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:14}}>
+          {/* 규칙 패널 */}
+          {rightPanel==="rules"&&(
+            <div>
+              <div style={{display:"flex",gap:6,marginBottom:12}}>
+                <button onClick={()=>{const s={id:`rv${Date.now()}`,snapshot:{global:globalRules,channel:chRules},note:`버전 ${ruleVers.length+1}`,ts:new Date().toISOString()};setRuleVers(p=>[s,...p]);addLog("규칙 버전 저장","success");}}
+                  style={{flex:1,padding:"7px",fontSize:11,background:C.greenBg,border:`1px solid #6EE7B7`,borderRadius:7,color:C.green,fontWeight:500}}>버전 저장</button>
+                <button onClick={()=>setShowRV(p=>!p)} style={{flex:1,padding:"7px",fontSize:11,background:showRV?C.primaryBg:C.surface,border:`1px solid ${showRV?C.primary:C.border}`,borderRadius:7,color:showRV?C.primary:C.textSub,fontWeight:500}}>기록 ({ruleVers.length})</button>
+              </div>
+              {showRV&&ruleVers.length>0&&(
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:10,marginBottom:12}}>
+                  {ruleVers.map((v,i)=>(
+                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:6,marginBottom:2}}>
+                      <div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:500}}>{v.note}</div><div style={{fontSize:11,color:C.textSub}}>{new Date(v.ts).toLocaleDateString("ko-KR")}</div></div>
+                      {i===0?<Badge color={C.green} bg={C.greenBg}>현재</Badge>
+                        :<button onClick={()=>{setGlobalRules(v.snapshot.global);setChRules(v.snapshot.channel);addLog("규칙 복원","success");}} style={{fontSize:11,padding:"3px 8px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>복원</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{display:"flex",gap:5,marginBottom:12}}>
+                {["전역","채널"].map(t=>(
+                  <button key={t} onClick={()=>setRuleTab(t)} style={{flex:1,padding:"7px",fontSize:12,background:ruleTab===t?C.primaryBg:C.surface,color:ruleTab===t?C.primary:C.textSub,border:`1.5px solid ${ruleTab===t?C.primary:C.border}`,borderRadius:7,fontWeight:ruleTab===t?600:400}}>{t} 규칙</button>
+                ))}
+              </div>
+              {ruleTab==="전역"&&(
+                <>
+                  <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>전역 규칙 · {globalRules.filter(r=>r.enabled).length}/{globalRules.length} 활성</div>
+                  {globalRules.map(rule=>(
+                    <div key={rule.id} style={{border:`1px solid ${C.border}`,borderRadius:8,marginBottom:6,overflow:"hidden"}}>
+                      {editRId===rule.id?(
+                        <div style={{padding:10}}>
+                          <textarea value={editRTxt} onChange={e=>setEditRTxt(e.target.value)} style={{width:"100%",height:48,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 9px",color:C.text,resize:"none",lineHeight:1.5,marginBottom:7}}/>
+                          <div style={{display:"flex",gap:6}}>
+                            <button onClick={()=>{setGlobalRules(p=>p.map(r=>r.id===editRId?{...r,text:editRTxt}:r));setEditRId(null);}} style={{flex:1,padding:"5px",fontSize:11,background:C.greenBg,border:`1px solid #6EE7B7`,borderRadius:6,color:C.green,fontWeight:600}}>저장</button>
+                            <button onClick={()=>setEditRId(null)} style={{padding:"5px 10px",fontSize:11,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>취소</button>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px"}}>
+                          <Toggle on={rule.enabled} onClick={()=>setGlobalRules(p=>p.map(r=>r.id===rule.id?{...r,enabled:!r.enabled}:r))}/>
+                          <span style={{fontSize:12,color:rule.enabled?C.text:C.textHint,lineHeight:1.5,flex:1}}>{rule.text}</span>
+                          <div style={{display:"flex",gap:4}}>
+                            <button onClick={()=>{setEditRId(rule.id);setEditRTxt(rule.text);}} style={{fontSize:12,color:C.textSub,background:"none",padding:"1px 3px"}}>✎</button>
+                            <button onClick={()=>setGlobalRules(p=>p.filter(r=>r.id!==rule.id))} style={{fontSize:12,color:C.textSub,background:"none",padding:"1px 3px"}}>×</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{border:`1.5px dashed ${C.border}`,borderRadius:8,padding:10,marginTop:4}}>
+                    <textarea value={newGR} onChange={e=>setNewGR(e.target.value)} placeholder="새 전역 규칙 입력..." style={{width:"100%",height:44,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 9px",color:C.text,resize:"none",lineHeight:1.5,marginBottom:7}}/>
+                    <button onClick={()=>{if(!newGR.trim())return;setGlobalRules(p=>[...p,{id:`g${Date.now()}`,text:newGR,enabled:true}]);setNewGR("");addLog("규칙 추가","success");}} style={{width:"100%",padding:"7px",background:C.primary,borderRadius:6,color:"#fff",fontWeight:600,fontSize:12}}>추가</button>
+                  </div>
+                </>
+              )}
+              {ruleTab==="채널"&&(
+                <>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                    {channels.map(ch=>(
+                      <button key={ch} onClick={()=>setActiveTab(ch)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,background:activeTab===ch?C.primaryBg:C.surface,color:activeTab===ch?C.primary:C.textSub,border:`1px solid ${activeTab===ch?C.primary:C.border}`,fontWeight:activeTab===ch?600:400}}>{ch}</button>
+                    ))}
+                  </div>
+                  <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>{activeTab} 규칙</div>
+                  {(chRules[activeTab]||[]).map(rule=>(
+                    <div key={rule.id} style={{border:`1px solid ${C.border}`,borderRadius:8,marginBottom:6,overflow:"hidden"}}>
+                      {editRId===rule.id?(
+                        <div style={{padding:10}}>
+                          <textarea value={editRTxt} onChange={e=>setEditRTxt(e.target.value)} style={{width:"100%",height:44,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 9px",color:C.text,resize:"none",lineHeight:1.5,marginBottom:7}}/>
+                          <div style={{display:"flex",gap:6}}>
+                            <button onClick={()=>{setChRules(p=>({...p,[activeTab]:(p[activeTab]||[]).map(r=>r.id===editRId?{...r,text:editRTxt}:r)}));setEditRId(null);}} style={{flex:1,padding:"5px",fontSize:11,background:C.greenBg,border:`1px solid #6EE7B7`,borderRadius:6,color:C.green,fontWeight:600}}>저장</button>
+                            <button onClick={()=>setEditRId(null)} style={{padding:"5px 10px",fontSize:11,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>취소</button>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px"}}>
+                          <Toggle on={rule.enabled} onClick={()=>setChRules(p=>({...p,[activeTab]:(p[activeTab]||[]).map(r=>r.id===rule.id?{...r,enabled:!r.enabled}:r)}))} accent={C.blue}/>
+                          <span style={{fontSize:12,color:rule.enabled?C.text:C.textHint,lineHeight:1.5,flex:1}}>{rule.text}</span>
+                          <div style={{display:"flex",gap:4}}>
+                            <button onClick={()=>{setEditRId(rule.id);setEditRTxt(rule.text);}} style={{fontSize:12,color:C.textSub,background:"none",padding:"1px 3px"}}>✎</button>
+                            <button onClick={()=>setChRules(p=>({...p,[activeTab]:(p[activeTab]||[]).filter(r=>r.id!==rule.id)}))} style={{fontSize:12,color:C.textSub,background:"none",padding:"1px 3px"}}>×</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    <input value={newCR} onChange={e=>setNewCR(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"&&newCR.trim()){setChRules(p=>({...p,[activeTab]:[...(p[activeTab]||[]),{id:`c${Date.now()}`,text:newCR,enabled:true}]}));setNewCR("");addLog(`${activeTab} 규칙 추가`,"success");}}}
+                      placeholder="규칙 입력 후 Enter" style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",color:C.text}}/>
+                    <button onClick={()=>{if(!newCR.trim())return;setChRules(p=>({...p,[activeTab]:[...(p[activeTab]||[]),{id:`c${Date.now()}`,text:newCR,enabled:true}]}));setNewCR("");}} style={{padding:"7px 12px",background:C.blue,borderRadius:7,color:"#fff",fontWeight:600,fontSize:13}}>+</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* RAG 패널 */}
+          {rightPanel==="rag"&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>태그 필터</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+                {allTags.map(tag=>(
+                  <button key={tag} onClick={()=>setSelTags(p=>p.includes(tag)?p.filter(x=>x!==tag):[...p,tag])}
+                    style={{padding:"4px 10px",borderRadius:20,fontSize:11,background:selTags.includes(tag)?C.primaryBg:C.surface,color:selTags.includes(tag)?C.primary:C.textSub,border:`1px solid ${selTags.includes(tag)?C.primary:C.border}`,fontWeight:selTags.includes(tag)?600:400,cursor:"pointer"}}>
+                    {tag}
+                  </button>
+                ))}
+                {selTags.length>0&&<button onClick={()=>setSelTags([])} style={{padding:"4px 10px",borderRadius:20,fontSize:11,background:C.surface,color:C.textSub,border:`1px solid ${C.border}`,cursor:"pointer"}}>초기화</button>}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+                <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>참고자료 ({ragRefs.filter(r=>selTags.length===0||r.tags.some(t=>selTags.includes(t))).length}개)</div>
+                <button onClick={()=>setShowAddRag(p=>!p)} style={{fontSize:11,padding:"3px 9px",background:showAddRag?C.primaryBg:C.surface,border:`1px solid ${showAddRag?C.primary:C.border}`,borderRadius:6,color:showAddRag?C.primary:C.textSub,cursor:"pointer"}}>{showAddRag?"취소":"+ 추가"}</button>
+              </div>
+              {showAddRag&&(
+                <div style={{background:C.primaryBg,border:`1px solid rgba(124,58,237,0.2)`,borderRadius:10,padding:12,marginBottom:12}}>
+                  <input value={newRag.title} onChange={e=>setNewRag(p=>({...p,title:e.target.value}))} placeholder="제목" style={{width:"100%",background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,marginBottom:7}}/>
+                  <textarea value={newRag.content} onChange={e=>setNewRag(p=>({...p,content:e.target.value}))} placeholder="내용, 예시, 가이드라인..." style={{width:"100%",height:72,background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,resize:"none",lineHeight:1.6,marginBottom:7}}/>
+                  <input value={newRag.tags} onChange={e=>setNewRag(p=>({...p,tags:e.target.value}))} placeholder="태그 (쉼표 구분)" style={{width:"100%",background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,marginBottom:9}}/>
+                  <button onClick={()=>{if(!newRag.title.trim())return;const tags=newRag.tags.split(",").map(t=>t.trim()).filter(Boolean);setRagRefs(p=>[...p,{id:`r${Date.now()}`,title:newRag.title,content:newRag.content,tags,preview:newRag.content.slice(0,70)+"...",isHighPerf:false}]);setNewRag({title:"",content:"",tags:""});setShowAddRag(false);addLog("참고자료 추가","success");}} style={{width:"100%",padding:"8px",background:C.primary,borderRadius:7,color:"#fff",fontSize:12,fontWeight:600}}>저장</button>
+                </div>
+              )}
+              {ragRefs.filter(r=>selTags.length===0||r.tags.some(t=>selTags.includes(t))).map(ref=>(
+                <div key={ref.id} style={{background:C.white,border:`1px solid ${ref.isHighPerf?"#FCD34D":C.border}`,borderRadius:10,padding:12,marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5}}>
+                    <div style={{fontSize:12,fontWeight:600,color:C.text,display:"flex",gap:6,alignItems:"center"}}>{ref.isHighPerf&&<span style={{color:"#D97706"}}>★</span>}{ref.title}</div>
+                    <button onClick={()=>setRagRefs(p=>p.filter(r=>r.id!==ref.id))} style={{fontSize:13,color:C.textHint,background:"none",marginLeft:6,padding:"0 2px"}}>×</button>
+                  </div>
+                  <div style={{fontSize:11,color:C.textSub,marginBottom:7,lineHeight:1.5}}>{ref.preview}</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {ref.tags.map(tag=><span key={tag} style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:C.surface,color:C.textSub,border:`1px solid ${C.border}`}}>{tag}</span>)}
+                    {ref.isHighPerf&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:C.amberBg,color:C.amber,border:`1px solid #FCD34D`}}>고성과</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 프롬프트 패널 */}
+          {rightPanel==="prompts"&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>채널 프롬프트 편집</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
+                {channels.map(ch=>(
+                  <button key={ch} onClick={()=>{setEditCh(ch);setEditTmpl(prompts[ch]||"");setShowPV(false);}}
+                    style={{padding:"4px 10px",borderRadius:20,fontSize:11,background:editCh===ch?C.primaryBg:C.surface,color:editCh===ch?C.primary:C.textSub,border:`1px solid ${editCh===ch?C.primary:C.border}`,fontWeight:editCh===ch?600:400,cursor:"pointer"}}>{ch}</button>
+                ))}
+              </div>
+              {editCh&&(
+                <>
+                  <div style={{fontSize:11,fontWeight:500,color:C.textSub,marginBottom:7}}>편집 중: <strong style={{color:C.primary}}>{editCh}</strong></div>
+                  <textarea value={editTmpl} onChange={e=>setEditTmpl(e.target.value)} style={{width:"100%",height:210,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12,color:C.textMd,fontSize:11.5,lineHeight:1.7,resize:"none",fontFamily:"monospace",marginBottom:9}}
+                    onFocus={e=>e.target.style.borderColor=C.primary} onBlur={e=>e.target.style.borderColor=C.border}/>
+                  <div style={{display:"flex",gap:7,marginBottom:10}}>
+                    <button onClick={()=>{const ver={id:`pv${Date.now()}`,template:editTmpl,note:`버전 ${(promptVers[editCh]||[]).length+1}`,ts:new Date().toISOString()};setPromptVers(p=>({...p,[editCh]:[ver,...(p[editCh]||[])]}));setPrompts(p=>({...p,[editCh]:editTmpl}));addLog(`${editCh} 프롬프트 저장`,"success");}}
+                      style={{flex:1,padding:"8px",background:C.primary,borderRadius:8,color:"#fff",fontSize:12,fontWeight:600}}>
+                      저장 (버전 {(promptVers[editCh]||[]).length+1})
+                    </button>
+                    <button onClick={()=>setShowPV(p=>!p)} style={{padding:"8px 12px",background:showPV?C.primaryBg:C.surface,border:`1px solid ${showPV?C.primary:C.border}`,borderRadius:8,color:showPV?C.primary:C.textSub,fontSize:12}}>기록 ({(promptVers[editCh]||[]).length})</button>
+                  </div>
+                  {showPV&&(promptVers[editCh]||[]).length>0&&(
+                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:10,marginBottom:10}}>
+                      {(promptVers[editCh]||[]).map((v,i)=>(
+                        <div key={v.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 7px",borderRadius:6,marginBottom:2}}>
+                          <div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:500}}>{v.note}</div><div style={{fontSize:11,color:C.textSub}}>{new Date(v.ts).toLocaleDateString("ko-KR")}</div></div>
+                          {i===0?<Badge color={C.green} bg={C.greenBg}>현재</Badge>
+                            :<button onClick={()=>{setEditTmpl(v.template);setPrompts(p=>({...p,[editCh]:v.template}));addLog(`${editCh} 복원`);}} style={{fontSize:11,padding:"3px 8px",background:C.white,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub}}>복원</button>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{fontSize:11,fontWeight:500,color:C.textSub,marginBottom:7}}>사용 가능한 변수</div>
+                    {["{{draft}}","{{contentType}}","{{goal}}","{{tone}}"].map(v=>(
+                      <span key={v} style={{fontSize:11,color:C.primary,background:C.primaryBg,padding:"2px 7px",borderRadius:5,marginRight:5,marginBottom:4,display:"inline-block",fontFamily:"monospace"}}>{v}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* 로그 패널 */}
+          {rightPanel==="log"&&(
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>활동 로그 ({log.length})</div>
+                <button onClick={()=>setLog([])} style={{fontSize:11,padding:"3px 8px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub,cursor:"pointer"}}>초기화</button>
+              </div>
+              {log.map(e=>(
+                <div key={e.id} style={{display:"flex",gap:9,paddingBottom:8,marginBottom:8,borderBottom:`1px solid ${C.surface}`}}>
+                  <span style={{fontSize:10,color:C.textHint,fontFamily:"monospace",minWidth:52,flexShrink:0,paddingTop:1}}>{e.time}</span>
+                  <span style={{fontSize:12,color:e.type==="error"?C.red:e.type==="success"?C.green:e.type==="warn"?C.amber:C.textSub,lineHeight:1.5}}>{e.msg}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{padding:"9px 14px",borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8,background:C.surface}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:C.green,animation:"pulse 3s infinite"}}/>
+          <span style={{fontSize:11,color:C.textSub}}>출력 {Object.keys(outputs).length}개 · {goal} → {goalData.group}</span>
+          <span style={{marginLeft:"auto",fontSize:11,color:C.textHint}}>{contentType}</span>
+        </div>
+      </div>
+
+      {/* 고성과 모달 */}
+      {starModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,backdropFilter:"blur(2px)"}}>
+          <div style={{background:C.white,borderRadius:16,border:`1px solid ${C.border}`,padding:28,width:440,maxWidth:"90vw",boxShadow:"0 8px 32px rgba(0,0,0,0.12)"}}>
+            <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:4}}>★ 고성과 콘텐츠 태깅</div>
+            <div style={{fontSize:13,color:C.textSub,marginBottom:14}}>이 콘텐츠를 고성과로 표시하고 RAG 참고자료에 자동 저장합니다.</div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:14,maxHeight:80,overflowY:"auto"}}>
+              <div style={{fontSize:12,color:C.textMd,lineHeight:1.6,fontFamily:"monospace"}}>{starModal.content.slice(0,160)}...</div>
+            </div>
+            <Lbl c="참고자료 제목 (선택)"/>
+            <input value={starNote} onChange={e=>setStarNote(e.target.value)} placeholder={`${starModal.channel} 고성과 — ${new Date().toLocaleDateString("ko-KR")}`}
+              style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,marginBottom:12}}
+              onFocus={e=>e.target.style.borderColor=C.primary} onBlur={e=>e.target.style.borderColor=C.border}/>
+            <Lbl c="추가 태그 (쉼표 구분)"/>
+            <input value={starTags} onChange={e=>setStarTags(e.target.value)} placeholder="예: q4-2024, 캠페인A"
+              style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,marginBottom:18}}
+              onFocus={e=>e.target.style.borderColor=C.primary} onBlur={e=>e.target.style.borderColor=C.border}/>
+            <div style={{display:"flex",gap:9}}>
+              <button onClick={()=>{const tags=starTags.split(",").map(t=>t.trim()).filter(Boolean);setRagRefs(p=>[...p,{id:`r${Date.now()}`,title:starNote||`${starModal.channel} 고성과`,content:starModal.content,tags:[...tags,starModal.channel.toLowerCase(),"고성과"],preview:starModal.content.slice(0,70)+"...",isHighPerf:true}]);setOutputs(p=>({...p,[starModal.channel]:{...p[starModal.channel],starred:true}}));addLog(`${starModal.channel} → RAG 저장`,"success");setStarModal(null);}}
+                style={{flex:1,padding:"11px",background:C.primary,borderRadius:9,color:"#fff",fontWeight:600,fontSize:13,boxShadow:"0 2px 8px rgba(124,58,237,0.25)"}}>★ RAG에 저장</button>
+              <button onClick={()=>setStarModal(null)} style={{padding:"11px 18px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,color:C.textSub,fontSize:13}}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 내보내기 모달 */}
+      {exportModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,backdropFilter:"blur(2px)"}}>
+          <div style={{background:C.white,borderRadius:16,border:`1px solid ${C.border}`,padding:28,width:340,boxShadow:"0 8px 32px rgba(0,0,0,0.12)"}}>
+            <div style={{fontWeight:700,fontSize:16,color:C.text,marginBottom:4}}>콘텐츠 내보내기</div>
+            <div style={{fontSize:13,color:C.textSub,marginBottom:18}}>{exportModal} — {contentType}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+              {[["copy","📋  클립보드 복사","복사"],["markdown","⬇  Markdown 다운로드",".md"],["txt","⬇  텍스트 다운로드",".txt"]].map(([fmt,label,ext])=>(
+                <button key={fmt} onClick={()=>{exportContent(exportModal,fmt);if(fmt!=="copy")setExportModal(null);}}
+                  style={{width:"100%",padding:"12px 16px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,color:C.text,fontSize:13,textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                  <span>{label}</span><span style={{fontSize:11,color:C.textHint,fontFamily:"monospace"}}>{ext}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>setExportModal(null)} style={{width:"100%",padding:"10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,color:C.textSub,fontSize:13}}>닫기</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 루트
+function Root(){
+  const [unlocked,setUnlocked]=React.useState(false);
+  if(!unlocked) return React.createElement(PasswordGate,{onUnlock:()=>setUnlocked(true)});
+  return React.createElement(CMASApp,null);
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(Root,null));
+</script>
+</body>
+</html>
