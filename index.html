@@ -29,11 +29,7 @@
 <div id="root"></div>
 <script type="text/babel">
 
-// ══════════════════════════════════════════════════════
-//  ⚠️ 여기에 Gemini API 키를 입력하세요
-// ══════════════════════════════════════════════════════
-const GEMINI_API_KEY = "AIzaSyB-vrFpGWoMwfhI7KucOigSJR2W5FcIu9Q";
-// ══════════════════════════════════════════════════════
+// API 키는 Vercel 환경변수에 저장됩니다. 여기에 입력하지 마세요.
 
 const PASSWORD = "csis";
 
@@ -101,30 +97,35 @@ function buildPrompt(ch,{draft,contentType,goal,tone,globalRules,chRules,ragRefs
   return tmpl.replace("{{draft}}",draft).replace("{{contentType}}",contentType).replace("{{goal}}",goal).replace("{{tone}}",tone)+rag+rb;
 }
 
-async function callGemini(prompt){
-  const apiKey = GEMINI_API_KEY;
-  if(!apiKey || apiKey==="여기에_API_키_입력") throw new Error("API 키가 설정되지 않았습니다. index.html 상단의 GEMINI_API_KEY를 입력하세요.");
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+async function callAI(prompt, retryCount=0){
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),30000);
+  const timer=setTimeout(()=>controller.abort(),60000);
   let res;
   try{
-    res=await fetch(url,{
+    res=await fetch("/api/generate",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:1200}}),
+      body:JSON.stringify({prompt}),
       signal:controller.signal
     });
   }catch(e){
     clearTimeout(timer);
-    if(e.name==="AbortError") throw new Error("시간 초과(30초). 다시 시도해주세요.");
+    if(e.name==="AbortError") throw new Error("시간 초과. 다시 시도해주세요.");
     throw e;
   }
   clearTimeout(timer);
-  if(!res.ok){const t=await res.text().catch(()=>"");throw new Error(`Gemini API 오류 ${res.status}: ${t.slice(0,100)}`);}
+  if(res.status===429){
+    if(retryCount<3){
+      const wait=Math.pow(2,retryCount)*5000;
+      await new Promise(r=>setTimeout(r,wait));
+      return callAI(prompt, retryCount+1);
+    }
+    throw new Error("요청 한도 초과. 잠시 후 다시 시도해주세요.");
+  }
+  if(!res.ok){const t=await res.text().catch(()=>"");throw new Error(`API 오류 ${res.status}: ${t.slice(0,100)}`);}
   const data=await res.json();
-  if(data.error) throw new Error(data.error.message||"Gemini API 오류");
-  return data.candidates?.[0]?.content?.parts?.[0]?.text||"결과 없음";
+  if(data.error) throw new Error(data.error||"API 오류");
+  return data.content||"결과 없음";
 }
 
 // ─── 비밀번호 화면
@@ -239,10 +240,10 @@ function CMASApp(){
   const generateCh=React.useCallback(async(ch)=>{
     if(!draft.trim()){addLog("초안을 입력해주세요","error");return;}
     setGenerating(p=>({...p,[ch]:true}));
-    addLog(`${ch} 생성 중... (Gemini 2.0 Flash)`);
+    addLog(`${ch} 생성 중... (GPT-4o mini)`);
     try{
       const prompt=buildPrompt(ch,{draft,contentType,goal,tone,globalRules,chRules,ragRefs,selTags,prompts});
-      const content=await callGemini(prompt);
+      const content=await callAI(prompt);
       const lc=content.toLowerCase();
       const viol=[];
       ["레버리지","시너지","파괴적","패러다임"].forEach(w=>{if(lc.includes(w))viol.push({text:`금지 단어: "${w}"`,sev:"경고"});});
@@ -284,7 +285,7 @@ function CMASApp(){
           </div>
           <div>
             <div style={{fontWeight:700,fontSize:14,color:C.text,letterSpacing:"-0.3px"}}>CMAS</div>
-            <div style={{fontSize:10,color:C.textSub}}>Powered by Gemini 2.0 Flash ✦</div>
+            <div style={{fontSize:10,color:C.textSub}}>Powered by GPT-4o mini ✦</div>
           </div>
         </div>
 
