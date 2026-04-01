@@ -254,11 +254,14 @@ function CMASApp(){
     }finally{setGenerating(p=>({...p,[ch]:false}));}
   },[draft,contentType,goal,tone,globalRules,chRules,ragRefs,selTags,prompts]);
 
-  const generateAll=()=>{
-    if(!draft.trim()){addLog("초안을 입력해주세요","error");return;}
-    addLog(`전체 생성: ${channels.join(", ")}`);
-    channels.forEach(ch=>generateCh(ch));
-  };
+ const generateAll = async () => {
+  if (!draft.trim()) { addLog("초안을 입력해주세요", "error"); return; }
+  addLog(`전체 생성: ${channels.join(", ")}`);
+  for (const ch of channels) {
+    await generateCh(ch);
+    await new Promise(r => setTimeout(r, 2000)); // 2초 간격
+  }
+};
 
   const exportContent=(ch,fmt)=>{
     const out=outputs[ch];if(!out)return;
